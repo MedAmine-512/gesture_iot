@@ -1,6 +1,7 @@
 import cv2
 import mediapipe as mp
 import requests
+from datetime import datetime
 import time
 
 mp_hands = mp.solutions.hands
@@ -12,9 +13,19 @@ hands = mp_hands.Hands(
 )
 mp_drawing = mp.solutions.drawing_utils
 
-devices = {"light": "OFF", "fan": "OFF", "alarm": "OFF"}
+device_states = {"light": "OFF", "fan": "OFF", "alarm": "OFF"}
 last_gesture = None
 cooldown = 0
+gesture_delay = 0
+
+gesture_map = {
+    "THUMBS_UP": ("light", "ON"),
+    "THUMBS_DOWN": ("light", "OFF"),
+    "OPEN_HAND": ("fan", "ON"),
+    "CLOSED_HAND": ("fan", "OFF"),
+    "PEACE": ("alarm", "ON"),
+    "ROCK": ("alarm", "OFF"),
+}
 
 def classify_gesture(lm):
     try:
@@ -41,20 +52,21 @@ def classify_gesture(lm):
         pass
     return None
 
-print("\n🎮 GESTURE CONTROL → NODE-RED")
-print("="*40)
-print("✊ FIST → Light OFF")
-print("🖐️  OPEN → Light ON")
-print("👍 UP → Fan ON")
-print("👎 DOWN → Fan OFF")
-print("✌️  PEACE → Alarm ON")
-print("🤘 ROCK → Alarm OFF")
-print("="*40)
+print("="*50)
+print("FIST → Light OFF")
+print("OPEN → Light ON")
+print("UP → Fan ON")
+print("DOWN → Fan OFF")
+print("PEACE → Alarm ON")
+print("ROCK → Alarm OFF")
 print("Press 'q' to quit\n")
 
 cap = cv2.VideoCapture(0)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+cap.set(cv2.CAP_PROP_FPS, 30)
+
+frame_skip = 0
 
 while True:
     ret, frame = cap.read()
@@ -63,6 +75,10 @@ while True:
     
     frame = cv2.flip(frame, 1)
     h, w, c = frame.shape
+    
+    frame_skip += 1
+    if frame_skip % 2 != 0:
+        continue
     
     try:
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -81,56 +97,19 @@ while True:
                 pass
             
             if gesture and gesture != last_gesture and time.time() > cooldown:
-                if gesture == "CLOSED_HAND":
-                    devices["light"] = "OFF"
-                    try:
-                        requests.post("http://localhost:1880/light", json={"state": "OFF"}, timeout=1)
-                    except:
-                        pass
-                    print(f"💡 Light: OFF")
+                device, state = gesture_map[gesture]
+                device_states[device] = state
                 
-                elif gesture == "OPEN_HAND":
-                    devices["light"] = "ON"
-                    try:
-                        requests.post("http://localhost:1880/light", json={"state": "ON"}, timeout=1)
-                    except:
-                        pass
-                    print(f"💡 Light: ON")
+                try:
+                    requests.post(f"http://localhost:1880/{device}", json={"state": state}, timeout=1)
+                except:
+                    pass
                 
-                elif gesture == "THUMBS_UP":
-                    devices["fan"] = "ON"
-                    try:
-                        requests.post("http://localhost:1880/fan", json={"state": "ON"}, timeout=1)
-                    except:
-                        pass
-                    print(f"🌀 Fan: ON")
-                
-                elif gesture == "THUMBS_DOWN":
-                    devices["fan"] = "OFF"
-                    try:
-                        requests.post("http://localhost:1880/fan", json={"state": "OFF"}, timeout=1)
-                    except:
-                        pass
-                    print(f"🌀 Fan: OFF")
-                
-                elif gesture == "PEACE":
-                    devices["alarm"] = "ON"
-                    try:
-                        requests.post("http://localhost:1880/alarm", json={"state": "ON"}, timeout=1)
-                    except:
-                        pass
-                    print(f"🔔 Alarm: ON")
-                
-                elif gesture == "ROCK":
-                    devices["alarm"] = "OFF"
-                    try:
-                        requests.post("http://localhost:1880/alarm", json={"state": "OFF"}, timeout=1)
-                    except:
-                        pass
-                    print(f"🔔 Alarm: OFF")
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                print(f"[{timestamp}]  {device.upper()}: {state}")
                 
                 last_gesture = gesture
-                cooldown = time.time() + 1.5
+                cooldown = time.time() + 2.0
         
         if gesture:
             cv2.putText(frame, f"Gesture: {gesture}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
@@ -138,20 +117,19 @@ while True:
             cv2.putText(frame, "Show hand...", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 165, 255), 2)
         
         y = 70
-        for device, state in devices.items():
+        for device, state in device_states.items():
             color = (0, 255, 0) if state == "ON" else (0, 0, 255)
-            cv2.putText(frame, f"{device.upper()}: {state}", (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-            y += 35
+            cv2.circle(frame, (w-30, y-20), 15, color, -1)
+            cv2.putText(frame, f"{device.upper()}: {state}", (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+            y += 40
         
-        cv2.imshow("Gesture Control", frame)
+        cv2.imshow("Gesture Control → Node-RED", frame)
         
         if cv2.waitKey(5) & 0xFF == ord('q'):
             break
     
     except Exception as e:
-        print(f"Error: {e}")
         continue
 
 cap.release()
 cv2.destroyAllWindows()
-print("\n✅ Done")
