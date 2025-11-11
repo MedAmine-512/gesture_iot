@@ -112,6 +112,8 @@ def publish_sensors():
     mqtt_client.publish("sensors/current_light", json.dumps({"value": data["current_light"], "unit": "mA"}))
     mqtt_client.publish("sensors/current_fan", json.dumps({"value": data["current_fan"], "unit": "mA"}))
     mqtt_client.publish("sensors/current_alarm", json.dumps({"value": data["current_alarm"], "unit": "mA"}))
+
+
     mqtt_client.publish("sensors/all", json.dumps(data))
     
     try:
@@ -119,23 +121,7 @@ def publish_sensors():
     except:
         pass
 
-print("\nMQTT SENSOR SIMULATOR")
-print("="*70)
-print("Publishing to:")
-print("  - sensors/temperature")
-print("  - sensors/humidity")
-print("  - sensors/light_intensity")
-print("  - sensors/current_light")
-print("  - sensors/current_fan")
-print("  - sensors/current_alarm")
-print("  - sensors/all (all data)")
-print("="*70)
-print("Subscribing to:")
-print("  - home/light")
-print("  - home/fan")
-print("  - home/alarm")
-print("="*70)
-print("Press Ctrl+C to stop\n")
+
 
 try:
     while True:
