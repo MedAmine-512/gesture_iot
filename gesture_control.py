@@ -101,17 +101,6 @@ def classify_gesture(lm):
         pass
     return None
 
-print("\nGESTURE CONTROL WITH MQTT SENSORS")
-print("="*70)
-print("FIST → Light OFF")
-print("OPEN → Light ON")
-print("THUMBS UP → Fan ON")
-print("THUMBS DOWN → Fan OFF")
-print("PEACE → Alarm ON")
-print("ROCK → Alarm OFF")
-print("="*70)
-print("Receiving real-time sensor data via MQTT")
-print("Press 'q' to quit\n")
 
 cap = cv2.VideoCapture(0)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
