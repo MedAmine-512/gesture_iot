@@ -1,8 +1,26 @@
 import cv2
 import mediapipe as mp
+import paho.mqtt.client as mqtt
 import requests
 from datetime import datetime
 import time
+import json
+
+BROKER = "localhost"
+PORT = 1883
+NODERED_URL = "http://localhost:1880"
+
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, "gesture_control")
+
+device_states = {"light": "OFF", "fan": "OFF", "alarm": "OFF"}
+sensor_data = {
+    "temperature": 22.0,
+    "humidity": 50.0,
+    "light_intensity": 30.0,
+    "current_light": 0.0,
+    "current_fan": 0.0,
+    "current_alarm": 0.0
+}
 
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(
@@ -13,10 +31,8 @@ hands = mp_hands.Hands(
 )
 mp_drawing = mp.solutions.drawing_utils
 
-device_states = {"light": "OFF", "fan": "OFF", "alarm": "OFF"}
 last_gesture = None
 cooldown = 0
-gesture_delay = 0
 
 gesture_map = {
     "THUMBS_UP": ("light", "ON"),
@@ -26,6 +42,39 @@ gesture_map = {
     "PEACE": ("alarm", "ON"),
     "ROCK": ("alarm", "OFF"),
 }
+
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        print("Connected to MQTT Broker!")
+        client.subscribe("sensors/#")
+    else:
+        print(f"Connection failed: {rc}")
+
+def on_message(client, userdata, msg):
+    try:
+        payload = json.loads(msg.payload.decode())
+        if "temperature" in msg.topic:
+            sensor_data["temperature"] = payload.get("value", 22.0)
+        elif "humidity" in msg.topic:
+            sensor_data["humidity"] = payload.get("value", 50.0)
+        elif "light_intensity" in msg.topic:
+            sensor_data["light_intensity"] = payload.get("value", 30.0)
+        elif "current_light" in msg.topic:
+            sensor_data["current_light"] = payload.get("value", 0.0)
+        elif "current_fan" in msg.topic:
+            sensor_data["current_fan"] = payload.get("value", 0.0)
+        elif "current_alarm" in msg.topic:
+            sensor_data["current_alarm"] = payload.get("value", 0.0)
+    except:
+        pass
+
+mqtt_client.on_connect = on_connect
+mqtt_client.on_message = on_message
+
+print("Connecting to MQTT Broker...")
+mqtt_client.connect(BROKER, PORT, keepalive=60)
+mqtt_client.loop_start()
+time.sleep(2)
 
 def classify_gesture(lm):
     try:
@@ -52,14 +101,6 @@ def classify_gesture(lm):
         pass
     return None
 
-print("="*50)
-print("FIST → Light OFF")
-print("OPEN → Light ON")
-print("UP → Fan ON")
-print("DOWN → Fan OFF")
-print("PEACE → Alarm ON")
-print("ROCK → Alarm OFF")
-print("Press 'q' to quit\n")
 
 cap = cv2.VideoCapture(0)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -100,30 +141,48 @@ while True:
                 device, state = gesture_map[gesture]
                 device_states[device] = state
                 
-                try:
-                    requests.post(f"http://localhost:1880/{device}", json={"state": state}, timeout=1)
-                except:
-                    pass
+                mqtt_client.publish(f"home/{device}", state)
                 
                 timestamp = datetime.now().strftime("%H:%M:%S")
-                print(f"[{timestamp}]  {device.upper()}: {state}")
+                print(f"[{timestamp}] {device.upper()}: {state}")
+                print(gesture)
+                gesture_data = {
+                    "gesture": gesture,
+                    "device": device,
+                    "state": state,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+                try:
+                    requests.post(f"{NODERED_URL}/gesture", json=gesture_data, timeout=1)
+                except:
+                    pass
                 
                 last_gesture = gesture
                 cooldown = time.time() + 2.0
         
         if gesture:
             cv2.putText(frame, f"Gesture: {gesture}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        else:
-            cv2.putText(frame, "Show hand...", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 165, 255), 2)
         
-        y = 70
-        for device, state in device_states.items():
+        
+        
+        
+        y = 160
+        for device in ["light", "fan", "alarm"]:
+            state = device_states[device]
+            
+           
+            
             color = (0, 255, 0) if state == "ON" else (0, 0, 255)
-            cv2.circle(frame, (w-30, y-20), 15, color, -1)
-            cv2.putText(frame, f"{device.upper()}: {state}", (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
-            y += 40
+            
+            
+            status_text = f"{device.upper()}: {state}"
+            cv2.putText(frame, status_text, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+            
+            y += 45
         
-        cv2.imshow("Gesture Control → Node-RED", frame)
+        
+        cv2.imshow("Gesture Control", frame)
         
         if cv2.waitKey(5) & 0xFF == ord('q'):
             break
@@ -133,3 +192,4 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
+mqtt_client.loop_stop()
